@@ -9,9 +9,10 @@ import traceback
 import threading
 import time
 import datetime
+from typing import Optional, Dict, Any, List, Tuple, Union
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QGroupBox, QFormLayout, QTextEdit, QSpinBox, QFileDialog, QMessageBox, QTabWidget, QCheckBox, QDoubleSpinBox, QColorDialog, QComboBox, QListWidget, QListWidgetItem, QAbstractItemView
 from PySide6.QtGui import QImage, QPainter, QPixmap, QColor, QFont, QFontMetrics, QShortcut, QKeySequence, QAction
-from PySide6.QtCore import Qt, QTimer, QSettings, QPoint, QRect
+from PySide6.QtCore import Qt, QTimer, QSettings, QPoint, QRect, QObject
 import psutil
 from pixoo import Pixoo
 from core.device import Device, DeviceConfig
@@ -20,13 +21,14 @@ from core.player import Player
 from core.scenes.text import TextScene
 from core.scenes.image import ImageScene
 from core.scenes.sysinfo import SysInfoScene
+from core.ui.theme_manager import ThemeManager
 from pathlib import Path
 
 
 class SceneListWidget(QListWidget):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
-        self._drag_allowed = False
+        self._drag_allowed: bool = False
 
     def mousePressEvent(self, event):
         self._drag_allowed = False
@@ -45,69 +47,73 @@ class SceneListWidget(QListWidget):
                         self._drag_allowed = True
         super().mousePressEvent(event)
 
-    def startDrag(self, supportedActions):
+    def startDrag(self, supportedActions: Any) -> None:
         if not self._drag_allowed:
             return
         super().startDrag(supportedActions)
 
 class PixooCommander(QMainWindow):
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Pixoo Commander")
         self.setGeometry(100, 100, 800, 700)
 
         # Device connection
-        self.pixoo = None
-        self.connected = False
-        self.monitoring = False
-        self.screen_rotation = False
-        self.current_screen = 0  # 0 = image, 1 = system info, 2 = custom message
-        self.last_image_path = ""
-        self.last_text = "Hello, Pixoo!"
-        self.custom_message = "Custom Message"
-        self.custom_message_color = (255, 255, 255)  # White
+        self.pixoo: Optional[Pixoo] = None
+        self.connected: bool = False
+        self.monitoring: bool = False
+        self.screen_rotation: bool = False
+        self.current_screen: int = 0  # 0 = image, 1 = system info, 2 = custom message
+        self.last_image_path: str = ""
+        self.last_text: str = "Hello, Pixoo!"
+        self.custom_message: str = "Custom Message"
+        self.custom_message_color: Tuple[int, int, int] = (255, 255, 255)  # White
         # Scenes/Project
-        self.project = Project()
-        self.device_wrapper = None
-        self.player = None
-        self.project_path = None  # path to saved project file
-        self.settings = QSettings("PixooCommander", "Controller")
-        self.dirty = False
+        self.project: Project = Project()
+        self.device_wrapper: Optional[Device] = None
+        self.player: Optional[Player] = None
+        self.project_path: Optional[str] = None  # path to saved project file
+        self.settings: QSettings = QSettings("PixooCommander", "Controller")
+        self.dirty: bool = False
+
+        # Theme manager
+        self.theme_manager: ThemeManager = ThemeManager()
+        self.theme_manager.themeChanged.connect(self.on_theme_changed)
 
         # Timers
-        self.monitoring_timer = QTimer()
+        self.monitoring_timer: QTimer = QTimer()
         self.monitoring_timer.timeout.connect(self.update_system_info)
-        self.rotation_timer = QTimer()
+        self.rotation_timer: QTimer = QTimer()
         self.rotation_timer.timeout.connect(self.rotate_screens)
         # Scenes playback timer
-        self.scene_play_timer = QTimer()
+        self.scene_play_timer: QTimer = QTimer()
         self.scene_play_timer.timeout.connect(self.play_next_scene)
         # Preview refresh timer (for live SysInfo and text scroll)
-        self.preview_timer = QTimer()
+        self.preview_timer: QTimer = QTimer()
         self.preview_timer.timeout.connect(self.on_preview_tick)
         self.preview_timer.start(100)
         # Scene animation timer (device-side during playback)
-        self.scene_anim_timer = QTimer()
+        self.scene_anim_timer: QTimer = QTimer()
         self.scene_anim_timer.timeout.connect(self.on_scene_anim_tick)
 
         # Create central widget and layout
-        central_widget = QWidget()
+        central_widget: QWidget = QWidget()
         self.setCentralWidget(central_widget)
-        main_layout = QVBoxLayout(central_widget)
+        main_layout: QVBoxLayout = QVBoxLayout(central_widget)
         self.update_window_title()
 
         # Create tab widget for better organization
-        tab_widget = QTabWidget()
+        tab_widget: QTabWidget = QTabWidget()
         main_layout.addWidget(tab_widget)
 
         # Menu bar
         file_menu = self.menuBar().addMenu("&File")
-        act_new = QAction("&New", self)
-        act_open = QAction("&Open...", self)
-        act_save = QAction("&Save", self)
-        act_save_as = QAction("Save &As...", self)
-        act_relink = QAction("&Relink Missing Assets", self)
-        act_exit = QAction("E&xit", self)
+        act_new: QAction = QAction("&New", self)
+        act_open: QAction = QAction("&Open...", self)
+        act_save: QAction = QAction("&Save", self)
+        act_save_as: QAction = QAction("Save &As...", self)
+        act_relink: QAction = QAction("&Relink Missing Assets", self)
+        act_exit: QAction = QAction("E&xit", self)
         file_menu.addAction(act_new)
         file_menu.addAction(act_open)
         file_menu.addAction(act_save)
@@ -117,20 +123,29 @@ class PixooCommander(QMainWindow):
         file_menu.addSeparator()
         file_menu.addAction(act_exit)
 
+        # Theme menu
+        theme_menu = self.menuBar().addMenu("&Theme")
+        act_light: QAction = QAction("&Light", self)
+        act_dark: QAction = QAction("&Dark", self)
+        act_light.triggered.connect(self.switch_to_light_theme)
+        act_dark.triggered.connect(self.switch_to_dark_theme)
+        theme_menu.addAction(act_light)
+        theme_menu.addAction(act_dark)
+
         # Create connection tab
         connection_tab = QWidget()
         connection_layout = QVBoxLayout(connection_tab)
 
         # Create connection group
-        connection_group = QGroupBox("Device Connection")
-        connection_form = QFormLayout()
+        connection_group: QGroupBox = QGroupBox("Device Connection")
+        connection_form: QFormLayout = QFormLayout()
 
-        self.ip_input = QLineEdit("192.168.0.103")
-        self.port_input = QSpinBox()
+        self.ip_input: QLineEdit = QLineEdit("192.168.0.103")
+        self.port_input: QSpinBox = QSpinBox()
         self.port_input.setRange(1, 65535)
         self.port_input.setValue(64)
-        self.connect_button = QPushButton("Connect")
-        self.status_label = QLabel("Not connected")
+        self.connect_button: QPushButton = QPushButton("Connect")
+        self.status_label: QLabel = QLabel("Not connected")
         self.status_label.setStyleSheet("color: red;")
 
         connection_form.addRow("Device IP:", self.ip_input)
@@ -142,25 +157,25 @@ class PixooCommander(QMainWindow):
         connection_layout.addWidget(connection_group)
 
         # Create controls tab
-        controls_tab = QWidget()
-        controls_layout = QVBoxLayout(controls_tab)
+        controls_tab: QWidget = QWidget()
+        controls_layout: QVBoxLayout = QVBoxLayout(controls_tab)
 
         # Text display controls
-        text_group = QGroupBox("Text Display")
-        text_layout = QHBoxLayout()
-        self.text_input = QLineEdit("Hello, Pixoo!")
-        self.send_text_button = QPushButton("Send Text")
+        text_group: QGroupBox = QGroupBox("Text Display")
+        text_layout: QHBoxLayout = QHBoxLayout()
+        self.text_input: QLineEdit = QLineEdit("Hello, Pixoo!")
+        self.send_text_button: QPushButton = QPushButton("Send Text")
         text_layout.addWidget(QLabel("Text:"))
         text_layout.addWidget(self.text_input)
         text_layout.addWidget(self.send_text_button)
         text_group.setLayout(text_layout)
 
         # Image display controls
-        image_group = QGroupBox("Image Display")
-        image_layout = QHBoxLayout()
-        self.image_path_input = QLineEdit()
-        self.browse_image_button = QPushButton("Browse...")
-        self.send_image_button = QPushButton("Send Image")
+        image_group: QGroupBox = QGroupBox("Image Display")
+        image_layout: QHBoxLayout = QHBoxLayout()
+        self.image_path_input: QLineEdit = QLineEdit()
+        self.browse_image_button: QPushButton = QPushButton("Browse...")
+        self.send_image_button: QPushButton = QPushButton("Send Image")
         image_layout.addWidget(QLabel("Image Path:"))
         image_layout.addWidget(self.image_path_input)
         image_layout.addWidget(self.browse_image_button)
@@ -168,25 +183,25 @@ class PixooCommander(QMainWindow):
         image_group.setLayout(image_layout)
 
         # System info controls
-        system_group = QGroupBox("System Info")
-        system_layout = QHBoxLayout()
-        self.system_info_button = QPushButton("Send System Info")
-        self.system_monitor_button = QPushButton("Start Monitoring")
+        system_group: QGroupBox = QGroupBox("System Info")
+        system_layout: QHBoxLayout = QHBoxLayout()
+        self.system_info_button: QPushButton = QPushButton("Send System Info")
+        self.system_monitor_button: QPushButton = QPushButton("Start Monitoring")
         system_layout.addWidget(self.system_info_button)
         system_layout.addWidget(self.system_monitor_button)
         system_group.setLayout(system_layout)
 
         # Dual screen controls
-        dual_screen_group = QGroupBox("Screen Rotation")
-        dual_screen_layout = QHBoxLayout()
-        self.rotation_checkbox = QCheckBox("Enable Screen Rotation")
-        self.rotation_interval = QDoubleSpinBox()
+        dual_screen_group: QGroupBox = QGroupBox("Screen Rotation")
+        dual_screen_layout: QHBoxLayout = QHBoxLayout()
+        self.rotation_checkbox: QCheckBox = QCheckBox("Enable Screen Rotation")
+        self.rotation_interval: QDoubleSpinBox = QDoubleSpinBox()
         self.rotation_interval.setRange(5.0, 60.0)
         self.rotation_interval.setValue(10.0)
         self.rotation_interval.setSuffix(" seconds")
-        self.screen1_button = QPushButton("Show Image Screen")
-        self.screen2_button = QPushButton("Show System Info Screen")
-        self.screen3_button = QPushButton("Show Custom Message Screen")
+        self.screen1_button: QPushButton = QPushButton("Show Image Screen")
+        self.screen2_button: QPushButton = QPushButton("Show System Info Screen")
+        self.screen3_button: QPushButton = QPushButton("Show Custom Message Screen")
         dual_screen_layout.addWidget(self.rotation_checkbox)
         dual_screen_layout.addWidget(QLabel("Interval:"))
         dual_screen_layout.addWidget(self.rotation_interval)
@@ -196,11 +211,11 @@ class PixooCommander(QMainWindow):
         dual_screen_group.setLayout(dual_screen_layout)
 
         # Custom message controls
-        custom_message_group = QGroupBox("Custom Message Display")
-        custom_message_layout = QHBoxLayout()
-        self.custom_message_input = QLineEdit("Custom Message")
-        self.custom_message_color_button = QPushButton("Select Color")
-        self.send_custom_message_button = QPushButton("Send Custom Message")
+        custom_message_group: QGroupBox = QGroupBox("Custom Message Display")
+        custom_message_layout: QHBoxLayout = QHBoxLayout()
+        self.custom_message_input: QLineEdit = QLineEdit("Custom Message")
+        self.custom_message_color_button: QPushButton = QPushButton("Select Color")
+        self.send_custom_message_button: QPushButton = QPushButton("Send Custom Message")
         custom_message_layout.addWidget(QLabel("Message:"))
         custom_message_layout.addWidget(self.custom_message_input)
         custom_message_layout.addWidget(self.custom_message_color_button)
@@ -214,9 +229,9 @@ class PixooCommander(QMainWindow):
         controls_layout.addWidget(custom_message_group)
 
         # Create log output
-        log_group = QGroupBox("Log Output")
-        log_layout = QVBoxLayout()
-        self.log_output = QTextEdit()
+        log_group: QGroupBox = QGroupBox("Log Output")
+        log_layout: QVBoxLayout = QVBoxLayout()
+        self.log_output: QTextEdit = QTextEdit()
         self.log_output.setReadOnly(True)
         log_layout.addWidget(self.log_output)
         log_group.setLayout(log_layout)
@@ -228,20 +243,20 @@ class PixooCommander(QMainWindow):
         tab_widget.addTab(controls_tab, "Controls")
 
         # Create Scenes tab (basic)
-        scenes_tab = QWidget()
-        scenes_layout = QVBoxLayout(scenes_tab)
+        scenes_tab: QWidget = QWidget()
+        scenes_layout: QVBoxLayout = QVBoxLayout(scenes_tab)
 
         # Scene list and actions
-        scenes_actions_layout = QHBoxLayout()
-        self.add_text_scene_btn = QPushButton("Add Text")
-        self.add_image_scene_btn = QPushButton("Add Image")
-        self.add_sysinfo_scene_btn = QPushButton("Add SysInfo")
-        self.delete_scene_btn = QPushButton("Delete")
-        self.save_project_btn = QPushButton("Save")
-        self.save_as_project_btn = QPushButton("Save As")
-        self.open_project_btn = QPushButton("Open")
-        self.recent_label = QLabel("Recent:")
-        self.recent_combo = QComboBox()
+        scenes_actions_layout: QHBoxLayout = QHBoxLayout()
+        self.add_text_scene_btn: QPushButton = QPushButton("Add Text")
+        self.add_image_scene_btn: QPushButton = QPushButton("Add Image")
+        self.add_sysinfo_scene_btn: QPushButton = QPushButton("Add SysInfo")
+        self.delete_scene_btn: QPushButton = QPushButton("Delete")
+        self.save_project_btn: QPushButton = QPushButton("Save")
+        self.save_as_project_btn: QPushButton = QPushButton("Save As")
+        self.open_project_btn: QPushButton = QPushButton("Open")
+        self.recent_label: QLabel = QLabel("Recent:")
+        self.recent_combo: QComboBox = QComboBox()
         scenes_actions_layout.addWidget(self.add_text_scene_btn)
         scenes_actions_layout.addWidget(self.add_image_scene_btn)
         scenes_actions_layout.addWidget(self.add_sysinfo_scene_btn)
@@ -254,49 +269,49 @@ class PixooCommander(QMainWindow):
         scenes_actions_layout.addWidget(self.recent_label)
         scenes_actions_layout.addWidget(self.recent_combo)
 
-        self.scenes_list = SceneListWidget()
+        self.scenes_list: SceneListWidget = SceneListWidget()
 
         # Simple editors
-        editor_group = QGroupBox("Editor")
-        editor_form = QFormLayout()
-        self.scene_name_input = QLineEdit()
-        self.scene_duration_input = QSpinBox()
+        editor_group: QGroupBox = QGroupBox("Editor")
+        editor_form: QFormLayout = QFormLayout()
+        self.scene_name_input: QLineEdit = QLineEdit()
+        self.scene_duration_input: QSpinBox = QSpinBox()
         self.scene_duration_input.setRange(1, 600)
-        self.scene_text_input = QTextEdit()
+        self.scene_text_input: QTextEdit = QTextEdit()
         self.scene_text_input.setMaximumHeight(100)
-        self.scene_text_x_input = QSpinBox()
+        self.scene_text_x_input: QSpinBox = QSpinBox()
         self.scene_text_x_input.setRange(-128, 128)
-        self.scene_text_y_input = QSpinBox()
+        self.scene_text_y_input: QSpinBox = QSpinBox()
         self.scene_text_y_input.setRange(-128, 128)
         # Line spacing control
-        self.scene_line_spacing_input = QSpinBox()
+        self.scene_line_spacing_input: QSpinBox = QSpinBox()
         self.scene_line_spacing_input.setRange(0, 20)
         self.scene_line_spacing_input.setValue(2)
         # Text alignment control
-        self.scene_text_align_combo = QComboBox()
+        self.scene_text_align_combo: QComboBox = QComboBox()
         self.scene_text_align_combo.addItem("Left", userData="left")
         self.scene_text_align_combo.addItem("Center", userData="center")
         self.scene_text_align_combo.addItem("Right", userData="right")
-        self.scene_image_input = QLineEdit()
-        self.scene_image_browse = QPushButton("Browse...")
-        self.scene_color_button = QPushButton("Pick Text Color")
+        self.scene_image_input: QLineEdit = QLineEdit()
+        self.scene_image_browse: QPushButton = QPushButton("Browse...")
+        self.scene_color_button: QPushButton = QPushButton("Pick Text Color")
         self.scene_color_button.setEnabled(False)
-        self.text_scroll_checkbox = QCheckBox("Scroll horizontally")
+        self.text_scroll_checkbox: QCheckBox = QCheckBox("Scroll horizontally")
         self.text_scroll_checkbox.setEnabled(False)
-        self.text_speed_spin = QSpinBox()
+        self.text_speed_spin: QSpinBox = QSpinBox()
         self.text_speed_spin.setRange(1, 200)
         self.text_speed_spin.setSuffix(" px/s")
         self.text_speed_spin.setEnabled(False)
-        self.text_direction_combo = QComboBox()
+        self.text_direction_combo: QComboBox = QComboBox()
         self.text_direction_combo.addItem("Left", userData="left")
         self.text_direction_combo.addItem("Right", userData="right")
         self.text_direction_combo.setEnabled(False)
-        self.image_fit_combo = QComboBox()
+        self.image_fit_combo: QComboBox = QComboBox()
         self.image_fit_combo.addItem("Contain", userData="contain")
         self.image_fit_combo.addItem("Cover", userData="cover")
         self.image_fit_combo.addItem("Stretch", userData="stretch")
         self.image_fit_combo.setEnabled(False)
-        self.sysinfo_theme_combo = QComboBox()
+        self.sysinfo_theme_combo: QComboBox = QComboBox()
         self.sysinfo_theme_combo.addItem("Light", userData="light")
         self.sysinfo_theme_combo.addItem("Accent", userData="accent")
         self.sysinfo_theme_combo.addItem("Mono", userData="mono")
@@ -309,29 +324,29 @@ class PixooCommander(QMainWindow):
         editor_form.addRow("Line Spacing:", self.scene_line_spacing_input)
         editor_form.addRow("Text Alignment:", self.scene_text_align_combo)
         editor_form.addRow("Text Color:", self.scene_color_button)
-        row_scroll = QHBoxLayout()
+        row_scroll: QHBoxLayout = QHBoxLayout()
         row_scroll.addWidget(self.text_scroll_checkbox)
         row_scroll.addWidget(self.text_speed_spin)
-        roww2 = QWidget()
+        roww2: QWidget = QWidget()
         roww2.setLayout(row_scroll)
         editor_form.addRow("Text Scroll:", roww2)
         editor_form.addRow("Scroll Direction:", self.text_direction_combo)
         editor_form.addRow("SysInfo Theme:", self.sysinfo_theme_combo)
         editor_form.addRow("Image Fit:", self.image_fit_combo)
-        row = QHBoxLayout()
+        row: QHBoxLayout = QHBoxLayout()
         row.addWidget(self.scene_image_input)
         row.addWidget(self.scene_image_browse)
-        roww = QWidget()
+        roww: QWidget = QWidget()
         roww.setLayout(row)
         editor_form.addRow("Image Path:", roww)
         editor_group.setLayout(editor_form)
 
         # Playback controls
-        playback_layout = QHBoxLayout()
-        self.scenes_play_btn = QPushButton("Play")
-        self.scenes_pause_btn = QPushButton("Pause")
-        self.scenes_prev_btn = QPushButton("Prev")
-        self.scenes_next_btn = QPushButton("Next")
+        playback_layout: QHBoxLayout = QHBoxLayout()
+        self.scenes_play_btn: QPushButton = QPushButton("Play")
+        self.scenes_pause_btn: QPushButton = QPushButton("Pause")
+        self.scenes_prev_btn: QPushButton = QPushButton("Prev")
+        self.scenes_next_btn: QPushButton = QPushButton("Next")
         playback_layout.addWidget(self.scenes_play_btn)
         playback_layout.addWidget(self.scenes_pause_btn)
         playback_layout.addWidget(self.scenes_prev_btn)
@@ -343,11 +358,11 @@ class PixooCommander(QMainWindow):
         scenes_layout.addWidget(editor_group)
 
         # Preview pane
-        preview_group = QGroupBox("Preview (64x64)")
-        preview_layout = QVBoxLayout()
-        self.preview_label = QLabel()
+        preview_group: QGroupBox = QGroupBox("Preview (64x64)")
+        preview_layout: QVBoxLayout = QVBoxLayout()
+        self.preview_label: QLabel = QLabel()
         self.preview_label.setFixedSize(256, 256)
-        self.preview_label.setAlignment(Qt.AlignCenter)
+        self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)  # type: ignore
         preview_layout.addWidget(self.preview_label)
         preview_group.setLayout(preview_layout)
 
@@ -407,9 +422,9 @@ class PixooCommander(QMainWindow):
         self.image_fit_combo.currentIndexChanged.connect(self.on_image_fit_changed)
 
         # Drag-and-drop reordering for scenes list
-        self.scenes_list.setSelectionMode(QListWidget.SingleSelection)
-        self.scenes_list.setDragDropMode(QAbstractItemView.InternalMove)
-        self.scenes_list.setDefaultDropAction(Qt.MoveAction)
+        self.scenes_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)  # type: ignore
+        self.scenes_list.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)  # type: ignore
+        self.scenes_list.setDefaultDropAction(Qt.DropAction.MoveAction)  # type: ignore
         self.scenes_list.setDragEnabled(True)
         self.scenes_list.setAcceptDrops(True)
         try:
@@ -433,6 +448,10 @@ class PixooCommander(QMainWindow):
 
         # Load recent projects list
         self.load_recent_projects()
+
+        # Apply theme
+        preferred_theme = self.theme_manager.load_preference()
+        self.theme_manager.switch_theme(preferred_theme)
 
     def connect_to_device(self):
         """Connect to the Pixoo device"""
@@ -479,7 +498,7 @@ class PixooCommander(QMainWindow):
 
     def send_text(self):
         """Send text to the device"""
-        if not self.connected:
+        if not self.connected or self.pixoo is None:
             self.log_output.append("Error: Not connected to device")
             return
 
@@ -507,7 +526,7 @@ class PixooCommander(QMainWindow):
 
     def send_image(self):
         """Send image to the device"""
-        if not self.connected:
+        if not self.connected or self.pixoo is None:
             self.log_output.append("Error: Not connected to device")
             return
 
@@ -530,7 +549,7 @@ class PixooCommander(QMainWindow):
 
     def send_system_info(self):
         """Send system information to the device"""
-        if not self.connected:
+        if not self.connected or self.pixoo is None:
             self.log_output.append("Error: Not connected to device")
             return
 
@@ -574,7 +593,7 @@ class PixooCommander(QMainWindow):
 
     def update_system_info(self):
         """Update system information on the device"""
-        if not self.connected:
+        if not self.connected or self.pixoo is None:
             return
 
         try:
@@ -635,7 +654,7 @@ class PixooCommander(QMainWindow):
 
     def show_image_screen(self):
         """Show image screen"""
-        if not self.connected:
+        if not self.connected or self.pixoo is None:
             return
 
         try:
@@ -656,7 +675,7 @@ class PixooCommander(QMainWindow):
 
     def show_system_info_screen(self):
         """Show system info screen"""
-        if not self.connected:
+        if not self.connected or self.pixoo is None:
             return
 
         try:
@@ -691,7 +710,7 @@ class PixooCommander(QMainWindow):
 
     def send_custom_message(self):
         """Send custom message to the device"""
-        if not self.connected:
+        if not self.connected or self.pixoo is None:
             self.log_output.append("Error: Not connected to device")
             return
 
@@ -725,7 +744,7 @@ class PixooCommander(QMainWindow):
         self.scenes_list.clear()
         for s in self.project.scenes:
             item = QListWidgetItem()
-            item.setData(Qt.UserRole, s.id)
+            item.setData(Qt.ItemDataRole.UserRole, s.id)  # type: ignore
             widget = self.create_scene_item_widget(s)
             item.setSizeHint(widget.sizeHint())
             self.scenes_list.addItem(item)
@@ -945,7 +964,7 @@ class PixooCommander(QMainWindow):
                     if i < len(existing_lines) and "y" in existing_lines[i]:
                         line_config["y"] = existing_lines[i]["y"]
                     else:
-                        line_config["y"] = int(i * (12 + line_spacing))  # 12 is default line height
+                        line_config["y"] = int(i * (12 + line_spacing))  # type: ignore  # 12 is default line height
                     scene_lines.append(line_config)
 
                 scene.config["lines"] = scene_lines
@@ -976,7 +995,7 @@ class PixooCommander(QMainWindow):
                 # Update line positions based on new spacing
                 lines = scene.config.get("lines", [])
                 for i, line_config in enumerate(lines):
-                    line_config["y"] = int(i * (12 + int(val)))
+                    line_config["y"] = int(i * (12 + int(val)))  # type: ignore
                 scene.config["lines"] = lines
             # For legacy format, we don't need to do anything special
             self.update_preview()
@@ -1100,7 +1119,7 @@ class PixooCommander(QMainWindow):
         new_order = []
         for i in range(self.scenes_list.count()):
             item = self.scenes_list.item(i)
-            sid = item.data(Qt.UserRole)
+            sid = item.data(Qt.ItemDataRole.UserRole)  # type: ignore
             if sid in id_to_scene:
                 new_order.append(id_to_scene[sid])
         if len(new_order) == len(self.project.scenes):
@@ -1127,8 +1146,8 @@ class PixooCommander(QMainWindow):
         handle.setObjectName("dragHandle")
         handle.setToolTip("Drag to reorder")
         handle.setFixedWidth(16)
-        handle.setAlignment(Qt.AlignCenter)
-        handle.setCursor(Qt.OpenHandCursor)
+        handle.setAlignment(Qt.AlignmentFlag.AlignCenter)  # type: ignore
+        handle.setCursor(Qt.CursorShape.OpenHandCursor)  # type: ignore
         font = handle.font()
         font.setPointSize(max(10, font.pointSize()))
         handle.setFont(font)
@@ -1192,7 +1211,7 @@ class PixooCommander(QMainWindow):
         return True
 
     def play_scenes(self):
-        if not self.ensure_player_ready():
+        if not self.ensure_player_ready() or self.player is None:
             return
         # Set current index from selection
         idx = self.scenes_list.currentRow()
@@ -1204,7 +1223,8 @@ class PixooCommander(QMainWindow):
         except Exception as e:
             self.log_output.append(f"Failed to render scene: {e}")
             return
-        dur = max(1, self.player.current().duration_s if self.player.current() else 5)
+        current_scene = self.player.current()
+        dur = max(1, current_scene.duration_s if current_scene else 5)
         self.scene_play_timer.start(int(dur * 1000))
         self.log_output.append("Scenes playback started")
         # Start animation if needed
@@ -1228,7 +1248,8 @@ class PixooCommander(QMainWindow):
         except Exception as e:
             self.log_output.append(f"Failed to render scene: {e}")
             return
-        dur = max(1, self.player.current().duration_s if self.player.current() else 5)
+        current_scene = self.player.current()
+        dur = max(1, current_scene.duration_s if current_scene else 5)
         self.scene_play_timer.start(int(dur * 1000))
         self.update_scene_animation_timer()
 
@@ -1236,6 +1257,8 @@ class PixooCommander(QMainWindow):
         if not self.player:
             if not self.ensure_player_ready():
                 return
+        if self.player is None:
+            return
         self.player.next()
         self.on_scene_selected(self.player.index)
         self.refresh_scenes_list()
@@ -1246,6 +1269,8 @@ class PixooCommander(QMainWindow):
         if not self.player:
             if not self.ensure_player_ready():
                 return
+        if self.player is None:
+            return
         self.player.previous()
         self.on_scene_selected(self.player.index)
         self.refresh_scenes_list()
@@ -1294,14 +1319,14 @@ class PixooCommander(QMainWindow):
             return
         scene = self.project.scenes[idx]
         img = self.build_preview_image(scene)
-        pix = QPixmap.fromImage(img).scaled(self.preview_label.width(), self.preview_label.height(), Qt.KeepAspectRatio, Qt.FastTransformation)
+        pix = QPixmap.fromImage(img).scaled(self.preview_label.width(), self.preview_label.height(), Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.FastTransformation)  # type: ignore
         self.preview_label.setPixmap(pix)
 
     def build_preview_image(self, scene, size: int = 64) -> QImage:
-        img = QImage(size, size, QImage.Format_RGB888)
+        img = QImage(size, size, QImage.Format.Format_RGB888)  # type: ignore
         img.fill(QColor(0, 0, 0))
         painter = QPainter(img)
-        painter.setRenderHint(QPainter.TextAntialiasing, True)
+        painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)  # type: ignore
         painter.setPen(QColor(255, 255, 255))
         font = QFont()
         font.setPointSize(8)
@@ -1336,11 +1361,11 @@ class PixooCommander(QMainWindow):
                     if not qimg.isNull():
                         fit = scene.config.get("fit", "contain")
                         if fit == "cover":
-                            pix = QPixmap.fromImage(qimg).scaled(size, size, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                            pix = QPixmap.fromImage(qimg).scaled(size, size, Qt.AspectRatioMode.KeepAspectRatioByExpanding, Qt.TransformationMode.SmoothTransformation)  # type: ignore
                         elif fit == "stretch":
-                            pix = QPixmap.fromImage(qimg).scaled(size, size, Qt.IgnoreAspectRatio, Qt.SmoothTransformation)
+                            pix = QPixmap.fromImage(qimg).scaled(size, size, Qt.AspectRatioMode.IgnoreAspectRatio, Qt.TransformationMode.SmoothTransformation)  # type: ignore
                         else:  # contain
-                            pix = QPixmap.fromImage(qimg).scaled(size, size, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                            pix = QPixmap.fromImage(qimg).scaled(size, size, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)  # type: ignore
                         x = (size - pix.width()) // 2
                         y = (size - pix.height()) // 2
                         painter.drawPixmap(x, y, pix)
@@ -1500,8 +1525,8 @@ class PixooCommander(QMainWindow):
 
     def confirm_discard_changes(self) -> bool:
         # Minimal: no dirty tracking; always ask
-        ret = QMessageBox.question(self, "Discard Changes?", "Discard current project changes?", QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
-        return ret == QMessageBox.Yes
+        ret = QMessageBox.question(self, "Discard Changes?", "Discard current project changes?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No, QMessageBox.StandardButton.No)  # type: ignore
+        return ret == QMessageBox.StandardButton.Yes  # type: ignore
 
     def relink_missing_assets(self):
         from pathlib import Path as _P
@@ -1602,6 +1627,19 @@ class PixooCommander(QMainWindow):
         except Exception:
             pass
         return super().closeEvent(event)
+
+    def on_theme_changed(self, theme_name: str):
+        """Handle theme change events"""
+        # Update any UI elements that need to be refreshed when theme changes
+        self.update_preview()
+
+    def switch_to_light_theme(self):
+        """Switch to light theme"""
+        self.theme_manager.switch_theme('light')
+
+    def switch_to_dark_theme(self):
+        """Switch to dark theme"""
+        self.theme_manager.switch_theme('dark')
 
 def main():
     def exception_hook(exctype, value, tb):

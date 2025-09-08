@@ -33,7 +33,14 @@ The roadmap aligns with the overall project progress (e.g., core refactor done) 
 
 ## Phase 1: Core UI Refactor (Tokens and Basic Components)
 
-**Status**: PARTIAL (basic scenes tab exists).
+**Status**: DONE (tokens integrated; ThemeManager implemented and integrated).
+
+Implementation notes:
+
+- Token system loaded from `core/ui/tokens.json` and applied via generated QSS.
+- `ThemeManager` implemented and applied to QApplication; light/dark toggle wired in `main.py`.
+- Core components (buttons, lists, editor fields) updated to use token-based QSS; unit test added for stylesheet generation.
+- Note: QSS ID selectors require widget.objectName(...) assignments in `main.py` for playback/preview widgets — this remains to be applied.
 
 **Objectives**: Apply tokens and redesign key components without breaking functionality.
 
@@ -73,7 +80,7 @@ The roadmap aligns with the overall project progress (e.g., core refactor done) 
 
 ## Phase 3: Polish and Accessibility (A11y, Full Motion, Testing)
 
-**Status**: PARTIAL (tests harness added; a11y pending).
+**Status**: PARTIAL (tests harness added; a11y pending - focus outlines, keyboard nav, ARIA-like labels).
 
 **Objectives**: Ensure inclusivity, smoothness, and reliability.
 
@@ -119,3 +126,5 @@ The roadmap aligns with the overall project progress (e.g., core refactor done) 
 - **Post-Implementation**: Gather metrics from [metrics.md](metrics.md); iterate based on usage.
 
 This phased approach ensures steady progress toward a cohesive design system, building on the existing roadmap milestones.
+
+Verification: Run the app, open Theme menu, switch Light/Dark and confirm styles update; run `python -m pytest test/unit/test_theme_manager.py`.
