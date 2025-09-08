@@ -12,10 +12,10 @@ import datetime
 from typing import Optional, Dict, Any, List, Tuple, Union
 from PySide6.QtWidgets import QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit, QGroupBox, QFormLayout, QTextEdit, QSpinBox, QFileDialog, QMessageBox, QTabWidget, QCheckBox, QDoubleSpinBox, QColorDialog, QComboBox, QListWidget, QListWidgetItem, QAbstractItemView
 from PySide6.QtGui import QImage, QPainter, QPixmap, QColor, QFont, QFontMetrics, QShortcut, QKeySequence, QAction
-from PySide6.QtCore import Qt, QTimer, QSettings, QPoint, QRect, QObject
+from PySide6.QtCore import Qt, QTimer, QSettings, QPoint, QRect, QObject, QThread, Signal
 import psutil
 from pixoo import Pixoo
-from core.device import Device, DeviceConfig
+from core.device import Device, DeviceConfig, DeviceInfo
 from core.project import Project
 from core.player import Player
 from core.scenes.text import TextScene
@@ -52,6 +52,51 @@ class SceneListWidget(QListWidget):
             return
         super().startDrag(supportedActions)
 
+
+class DeviceDiscoveryWorker(QThread):
+    """Worker thread for device discovery."""
+    deviceFound = Signal(object)  # Signal to emit when a device is found
+    discoveryFinished = Signal()  # Signal to emit when discovery is finished
+    discoveryError = Signal(str)  # Signal to emit when an error occurs
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._is_running = True
+
+    def run(self):
+        """Run the device discovery process."""
+        try:
+            # Import here to avoid blocking the UI thread
+            from core.device import Device
+            import asyncio
+
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+            # Run the discovery
+            devices = loop.run_until_complete(Device.discover_devices())
+
+            # Emit found devices
+            for device in devices:
+                if not self._is_running:
+                    break
+                self.deviceFound.emit(device)
+
+            # Clean up
+            loop.close()
+
+            # Emit finished signal
+            if self._is_running:
+                self.discoveryFinished.emit()
+        except Exception as e:
+            if self._is_running:
+                self.discoveryError.emit(str(e))
+
+    def stop(self):
+        """Stop the discovery process."""
+        self._is_running = False
+
 class PixooCommander(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
@@ -75,6 +120,8 @@ class PixooCommander(QMainWindow):
         self.project_path: Optional[str] = None  # path to saved project file
         self.settings: QSettings = QSettings("PixooCommander", "Controller")
         self.dirty: bool = False
+        # Discovered device
+        self.selected_device: Optional[DeviceInfo] = None
 
         # Theme manager
         self.theme_manager: ThemeManager = ThemeManager()
@@ -82,9 +129,9 @@ class PixooCommander(QMainWindow):
 
         # Timers
         self.monitoring_timer: QTimer = QTimer()
-        self.monitoring_timer.timeout.connect(self.update_system_info)
+        # self.monitoring_timer.timeout.connect(self.update_system_info)
         self.rotation_timer: QTimer = QTimer()
-        self.rotation_timer.timeout.connect(self.rotate_screens)
+        # self.rotation_timer.timeout.connect(self.rotate_screens)
         # Scenes playback timer
         self.scene_play_timer: QTimer = QTimer()
         self.scene_play_timer.timeout.connect(self.play_next_scene)
@@ -140,7 +187,7 @@ class PixooCommander(QMainWindow):
         connection_group: QGroupBox = QGroupBox("Device Connection")
         connection_form: QFormLayout = QFormLayout()
 
-        self.ip_input: QLineEdit = QLineEdit("192.168.0.103")
+        self.ip_input: QLineEdit = QLineEdit("")
         self.port_input: QSpinBox = QSpinBox()
         self.port_input.setRange(1, 65535)
         self.port_input.setValue(64)
@@ -148,85 +195,24 @@ class PixooCommander(QMainWindow):
         self.status_label: QLabel = QLabel("Not connected")
         self.status_label.setStyleSheet("color: red;")
 
+        # Create scan button and device list
+        self.scan_button: QPushButton = QPushButton("Scan for Devices")
+        self.devices_list: QListWidget = QListWidget()
+        self.devices_list.setMaximumHeight(150)
+
+        # Connect scan button signal
+        self.scan_button.clicked.connect(self.start_device_scan)
+        self.devices_list.itemDoubleClicked.connect(self.select_device_from_list)
+
         connection_form.addRow("Device IP:", self.ip_input)
         connection_form.addRow("Screen Size:", self.port_input)
         connection_form.addRow("Status:", self.status_label)
+        connection_form.addRow(self.scan_button)
+        connection_form.addRow(self.devices_list)
         connection_form.addRow(self.connect_button)
 
         connection_group.setLayout(connection_form)
         connection_layout.addWidget(connection_group)
-
-        # Create controls tab
-        controls_tab: QWidget = QWidget()
-        controls_layout: QVBoxLayout = QVBoxLayout(controls_tab)
-
-        # Text display controls
-        text_group: QGroupBox = QGroupBox("Text Display")
-        text_layout: QHBoxLayout = QHBoxLayout()
-        self.text_input: QLineEdit = QLineEdit("Hello, Pixoo!")
-        self.send_text_button: QPushButton = QPushButton("Send Text")
-        text_layout.addWidget(QLabel("Text:"))
-        text_layout.addWidget(self.text_input)
-        text_layout.addWidget(self.send_text_button)
-        text_group.setLayout(text_layout)
-
-        # Image display controls
-        image_group: QGroupBox = QGroupBox("Image Display")
-        image_layout: QHBoxLayout = QHBoxLayout()
-        self.image_path_input: QLineEdit = QLineEdit()
-        self.browse_image_button: QPushButton = QPushButton("Browse...")
-        self.send_image_button: QPushButton = QPushButton("Send Image")
-        image_layout.addWidget(QLabel("Image Path:"))
-        image_layout.addWidget(self.image_path_input)
-        image_layout.addWidget(self.browse_image_button)
-        image_layout.addWidget(self.send_image_button)
-        image_group.setLayout(image_layout)
-
-        # System info controls
-        system_group: QGroupBox = QGroupBox("System Info")
-        system_layout: QHBoxLayout = QHBoxLayout()
-        self.system_info_button: QPushButton = QPushButton("Send System Info")
-        self.system_monitor_button: QPushButton = QPushButton("Start Monitoring")
-        system_layout.addWidget(self.system_info_button)
-        system_layout.addWidget(self.system_monitor_button)
-        system_group.setLayout(system_layout)
-
-        # Dual screen controls
-        dual_screen_group: QGroupBox = QGroupBox("Screen Rotation")
-        dual_screen_layout: QHBoxLayout = QHBoxLayout()
-        self.rotation_checkbox: QCheckBox = QCheckBox("Enable Screen Rotation")
-        self.rotation_interval: QDoubleSpinBox = QDoubleSpinBox()
-        self.rotation_interval.setRange(5.0, 60.0)
-        self.rotation_interval.setValue(10.0)
-        self.rotation_interval.setSuffix(" seconds")
-        self.screen1_button: QPushButton = QPushButton("Show Image Screen")
-        self.screen2_button: QPushButton = QPushButton("Show System Info Screen")
-        self.screen3_button: QPushButton = QPushButton("Show Custom Message Screen")
-        dual_screen_layout.addWidget(self.rotation_checkbox)
-        dual_screen_layout.addWidget(QLabel("Interval:"))
-        dual_screen_layout.addWidget(self.rotation_interval)
-        dual_screen_layout.addWidget(self.screen1_button)
-        dual_screen_layout.addWidget(self.screen2_button)
-        dual_screen_layout.addWidget(self.screen3_button)
-        dual_screen_group.setLayout(dual_screen_layout)
-
-        # Custom message controls
-        custom_message_group: QGroupBox = QGroupBox("Custom Message Display")
-        custom_message_layout: QHBoxLayout = QHBoxLayout()
-        self.custom_message_input: QLineEdit = QLineEdit("Custom Message")
-        self.custom_message_color_button: QPushButton = QPushButton("Select Color")
-        self.send_custom_message_button: QPushButton = QPushButton("Send Custom Message")
-        custom_message_layout.addWidget(QLabel("Message:"))
-        custom_message_layout.addWidget(self.custom_message_input)
-        custom_message_layout.addWidget(self.custom_message_color_button)
-        custom_message_layout.addWidget(self.send_custom_message_button)
-        custom_message_group.setLayout(custom_message_layout)
-
-        controls_layout.addWidget(text_group)
-        controls_layout.addWidget(image_group)
-        controls_layout.addWidget(system_group)
-        controls_layout.addWidget(dual_screen_group)
-        controls_layout.addWidget(custom_message_group)
 
         # Create log output
         log_group: QGroupBox = QGroupBox("Log Output")
@@ -235,12 +221,11 @@ class PixooCommander(QMainWindow):
         self.log_output.setReadOnly(True)
         log_layout.addWidget(self.log_output)
         log_group.setLayout(log_layout)
-
-        controls_layout.addWidget(log_group)
+        main_layout.addWidget(log_group)
 
         # Add tabs
         tab_widget.addTab(connection_tab, "Connection")
-        tab_widget.addTab(controls_tab, "Controls")
+        # tab_widget.addTab(controls_tab, "Controls")  # Controls tab removed
 
         # Create Scenes tab (basic)
         scenes_tab: QWidget = QWidget()
@@ -373,17 +358,6 @@ class PixooCommander(QMainWindow):
 
         # Connect signals
         self.connect_button.clicked.connect(self.connect_to_device)
-        self.send_text_button.clicked.connect(self.send_text)
-        self.send_image_button.clicked.connect(self.send_image)
-        self.browse_image_button.clicked.connect(self.browse_image)
-        self.system_info_button.clicked.connect(self.send_system_info)
-        self.system_monitor_button.clicked.connect(self.toggle_system_monitoring)
-        self.rotation_checkbox.stateChanged.connect(self.toggle_screen_rotation)
-        self.screen1_button.clicked.connect(self.show_image_screen)
-        self.screen2_button.clicked.connect(self.show_system_info_screen)
-        self.screen3_button.clicked.connect(self.show_custom_message_screen)
-        self.custom_message_color_button.clicked.connect(self.select_custom_message_color)
-        self.send_custom_message_button.clicked.connect(self.send_custom_message)
 
         # Scenes signals
         self.add_text_scene_btn.clicked.connect(self.add_text_scene)
@@ -465,9 +439,18 @@ class PixooCommander(QMainWindow):
             self.log_output.append("Disconnected from device")
             return
 
-        ip = self.ip_input.text()
-        port = self.port_input.value()
-        self.log_output.append(f"Attempting to connect to {ip}:{port}...")
+        # Determine connection parameters
+        if self.selected_device:
+            # Use selected discovered device
+            ip = self.selected_device.ip
+            port = self.selected_device.port
+            self.log_output.append(f"Connecting to discovered device {ip}:{port}...")
+        else:
+            # Fall back to manual IP input
+            ip = self.ip_input.text()
+            port = self.port_input.value()
+            self.log_output.append(f"Connecting to manually entered device {ip}:{port}...")
+
         self.status_label.setText("Connecting...")
         self.status_label.setStyleSheet("color: orange;")
 
@@ -479,7 +462,13 @@ class PixooCommander(QMainWindow):
             device_time = self.pixoo.get_device_time()
             # Also initialize core Device wrapper
             try:
-                self.device_wrapper = Device(DeviceConfig(ip=ip, screen_size=screen_size))
+                if self.selected_device:
+                    # Use DeviceConfig from selected DeviceInfo
+                    device_config = DeviceConfig(ip=self.selected_device.ip, screen_size=self.selected_device.port)
+                else:
+                    # Use manual input
+                    device_config = DeviceConfig(ip=ip, screen_size=screen_size)
+                self.device_wrapper = Device(device_config)
                 self.device_wrapper.connect()
                 self.player = Player(self.device_wrapper)
             except Exception as de:
@@ -496,247 +485,66 @@ class PixooCommander(QMainWindow):
             self.pixoo = None
             self.connected = False
 
-    def send_text(self):
-        """Send text to the device"""
-        if not self.connected or self.pixoo is None:
-            self.log_output.append("Error: Not connected to device")
-            return
+    def start_device_scan(self):
+        """Start the device discovery process."""
+        # Disable the scan button to prevent multiple scans
+        self.scan_button.setEnabled(False)
+        self.scan_button.setText("Scanning...")
+        self.devices_list.clear()
+        self.selected_device = None  # Clear previously selected device
+        self.log_output.append("Starting device scan...")
 
-        text = self.text_input.text()
-        self.last_text = text
-        self.log_output.append(f"Sending text: {text}")
+        # Create and start the discovery worker
+        self.discovery_worker = DeviceDiscoveryWorker()
+        self.discovery_worker.deviceFound.connect(self.on_device_found)
+        self.discovery_worker.discoveryFinished.connect(self.on_discovery_finished)
+        self.discovery_worker.discoveryError.connect(self.on_discovery_error)
+        self.discovery_worker.start()
 
-        try:
-            # Clear the screen first
-            self.pixoo.clear()
-            # Draw text (correct method signature)
-            self.pixoo.draw_text_at_location_rgb(text, 0, 0, 255, 255, 255)  # White text
-            # Push to device
-            self.pixoo.push()
-            self.log_output.append("Text sent successfully")
-        except Exception as e:
-            self.log_output.append(f"Failed to send text: {str(e)}")
+    def on_device_found(self, device_info):
+        """Handle when a device is found during discovery."""
+        # Add device to the list
+        item_text = f"{device_info.name or 'Pixoo Device'} ({device_info.ip}:{device_info.port})"
+        if device_info.model:
+            item_text += f" - {device_info.model}"
+        item = QListWidgetItem(item_text)
+        item.setData(Qt.ItemDataRole.UserRole, device_info)
+        self.devices_list.addItem(item)
+        self.log_output.append(f"Found device: {item_text}")
 
-    def browse_image(self):
-        """Browse for an image file"""
-        file_path, _ = QFileDialog.getOpenFileName(
-            self, "Select Image", "", "Image Files (*.png *.jpg *.jpeg *.bmp)")
-        if file_path:
-            self.image_path_input.setText(file_path)
+        # Automatically select the first device found
+        if self.devices_list.count() == 1:
+            self.devices_list.setCurrentItem(item)
+            self.selected_device = device_info
+            self.ip_input.setText(device_info.ip)
+            self.port_input.setValue(device_info.port)
+            self.log_output.append(f"Automatically selected device: {device_info.ip}:{device_info.port}")
 
-    def send_image(self):
-        """Send image to the device"""
-        if not self.connected or self.pixoo is None:
-            self.log_output.append("Error: Not connected to device")
-            return
-
-        image_path = self.image_path_input.text()
-        if not image_path:
-            self.log_output.append("Error: No image path specified")
-            return
-
-        self.last_image_path = image_path
-        self.log_output.append(f"Sending image: {image_path}")
-
-        try:
-            # Draw image
-            self.pixoo.draw_image(image_path)
-            # Push to device
-            self.pixoo.push()
-            self.log_output.append("Image sent successfully")
-        except Exception as e:
-            self.log_output.append(f"Failed to send image: {str(e)}")
-
-    def send_system_info(self):
-        """Send system information to the device"""
-        if not self.connected or self.pixoo is None:
-            self.log_output.append("Error: Not connected to device")
-            return
-
-        try:
-            # Get system info
-            cpu_percent = psutil.cpu_percent(interval=1)
-            memory = psutil.virtual_memory()
-            memory_percent = memory.percent
-
-            # Clear screen
-            self.pixoo.clear()
-
-            # Draw system info
-            self.pixoo.draw_text_at_location_rgb(f"CPU: {cpu_percent:.1f}%", 0, 0, 255, 255, 255)
-            self.pixoo.draw_text_at_location_rgb(f"RAM: {memory_percent:.1f}%", 0, 10, 255, 255, 255)
-
-            # Push to device
-            self.pixoo.push()
-            self.log_output.append(f"System info sent - CPU: {cpu_percent:.1f}%, RAM: {memory_percent:.1f}%")
-        except Exception as e:
-            self.log_output.append(f"Failed to send system info: {str(e)}")
-
-    def toggle_system_monitoring(self):
-        """Toggle system monitoring"""
-        if not self.connected:
-            self.log_output.append("Error: Not connected to device")
-            return
-
-        if self.monitoring:
-            # Stop monitoring
-            self.monitoring_timer.stop()
-            self.monitoring = False
-            self.system_monitor_button.setText("Start Monitoring")
-            self.log_output.append("System monitoring stopped")
+    def on_discovery_finished(self):
+        """Handle when the discovery process is finished."""
+        self.scan_button.setEnabled(True)
+        self.scan_button.setText("Scan for Devices")
+        self.log_output.append("Device scan completed.")
+        if self.devices_list.count() == 0:
+            self.log_output.append("No devices found. Please check your network or enter IP manually.")
+            self.selected_device = None
         else:
-            # Start monitoring
-            self.monitoring_timer.start(5000)  # Update every 5 seconds
-            self.monitoring = True
-            self.system_monitor_button.setText("Stop Monitoring")
-            self.log_output.append("System monitoring started")
+            self.log_output.append(f"Found {self.devices_list.count()} device(s). First device automatically selected.")
 
-    def update_system_info(self):
-        """Update system information on the device"""
-        if not self.connected or self.pixoo is None:
-            return
+    def on_discovery_error(self, error_message):
+        """Handle when an error occurs during discovery."""
+        self.scan_button.setEnabled(True)
+        self.scan_button.setText("Scan for Devices")
+        self.log_output.append(f"Device scan error: {error_message}")
 
-        try:
-            # Get system info
-            cpu_percent = psutil.cpu_percent(interval=1)
-            memory = psutil.virtual_memory()
-            memory_percent = memory.percent
-
-            # Clear screen
-            self.pixoo.clear()
-
-            # Draw system info
-            self.pixoo.draw_text_at_location_rgb(f"CPU: {cpu_percent:.1f}%", 0, 0, 255, 255, 255)
-            self.pixoo.draw_text_at_location_rgb(f"RAM: {memory_percent:.1f}%", 0, 10, 255, 255, 255)
-
-            # Push to device
-            self.pixoo.push()
-        except Exception as e:
-            self.log_output.append(f"Failed to update system info: {str(e)}")
-            # Stop monitoring on error
-            self.toggle_system_monitoring()
-
-    def toggle_screen_rotation(self):
-        """Toggle screen rotation"""
-        if not self.connected:
-            self.rotation_checkbox.setChecked(False)
-            self.log_output.append("Error: Not connected to device")
-            return
-
-        if self.rotation_checkbox.isChecked():
-            # Start rotation
-            interval = int(self.rotation_interval.value() * 1000)  # Convert to milliseconds
-            self.rotation_timer.start(interval)
-            self.screen_rotation = True
-            self.log_output.append(f"Screen rotation enabled (interval: {self.rotation_interval.value()} seconds)")
-        else:
-            # Stop rotation
-            self.rotation_timer.stop()
-            self.screen_rotation = False
-            self.log_output.append("Screen rotation disabled")
-
-    def rotate_screens(self):
-        """Rotate between screens"""
-        if not self.connected:
-            return
-
-        self.current_screen = (self.current_screen + 1) % 3  # Cycle through 0, 1, 2
-
-        if self.current_screen == 0:
-            # Show image screen
-            self.show_image_screen()
-        elif self.current_screen == 1:
-            # Show system info screen
-            self.show_system_info_screen()
-        else:
-            # Show custom message screen
-            self.show_custom_message_screen()
-
-    def show_image_screen(self):
-        """Show image screen"""
-        if not self.connected or self.pixoo is None:
-            return
-
-        try:
-            if self.last_image_path:
-                # Draw last image
-                self.pixoo.clear()
-                self.pixoo.draw_image(self.last_image_path)
-                self.pixoo.push()
-                self.log_output.append("Showing image screen")
-            elif self.last_text:
-                # Draw last text if no image
-                self.pixoo.clear()
-                self.pixoo.draw_text_at_location_rgb(self.last_text, 0, 0, 255, 255, 255)
-                self.pixoo.push()
-                self.log_output.append("Showing text screen (no image available)")
-        except Exception as e:
-            self.log_output.append(f"Failed to show image screen: {str(e)}")
-
-    def show_system_info_screen(self):
-        """Show system info screen"""
-        if not self.connected or self.pixoo is None:
-            return
-
-        try:
-            # Get system info
-            cpu_percent = psutil.cpu_percent(interval=1)
-            memory = psutil.virtual_memory()
-            memory_percent = memory.percent
-
-            # Get current time
-            current_time = datetime.datetime.now().strftime("%H:%M:%S")
-
-            # Clear screen
-            self.pixoo.clear()
-
-            # Draw system info
-            self.pixoo.draw_text_at_location_rgb(f"CPU: {cpu_percent:.1f}%", 0, 0, 255, 255, 255)
-            self.pixoo.draw_text_at_location_rgb(f"RAM: {memory_percent:.1f}%", 0, 10, 255, 255, 255)
-            self.pixoo.draw_text_at_location_rgb(current_time, 0, 20, 0, 255, 255)
-
-            # Push to device
-            self.pixoo.push()
-            self.log_output.append("Showing system info screen")
-        except Exception as e:
-            self.log_output.append(f"Failed to show system info screen: {str(e)}")
-
-    def select_custom_message_color(self):
-        """Select color for custom message"""
-        color = QColorDialog.getColor()
-        if color.isValid():
-            self.custom_message_color = (color.red(), color.green(), color.blue())
-            self.log_output.append(f"Custom message color selected: RGB{self.custom_message_color}")
-
-    def send_custom_message(self):
-        """Send custom message to the device"""
-        if not self.connected or self.pixoo is None:
-            self.log_output.append("Error: Not connected to device")
-            return
-
-        message = self.custom_message_input.text()
-        self.custom_message = message
-
-        try:
-            # Clear screen
-            self.pixoo.clear()
-
-            # Draw custom message with selected color
-            r, g, b = self.custom_message_color
-            self.pixoo.draw_text_at_location_rgb(message, 0, 0, r, g, b)
-
-            # Push to device
-            self.pixoo.push()
-            self.log_output.append(f"Custom message sent: {message}")
-        except Exception as e:
-            self.log_output.append(f"Failed to send custom message: {str(e)}")
-
-    def show_custom_message_screen(self):
-        """Show custom message screen"""
-        if not self.connected:
-            return
-
-        self.send_custom_message()
+    def select_device_from_list(self, item):
+        """Select a device from the list and fill the IP input."""
+        device_info = item.data(Qt.ItemDataRole.UserRole)
+        if device_info:
+            self.selected_device = device_info
+            self.ip_input.setText(device_info.ip)
+            self.port_input.setValue(device_info.port)
+            self.log_output.append(f"Selected device: {device_info.ip}:{device_info.port}")
 
     # ===== Scenes Editor (basic) =====
     def refresh_scenes_list(self):

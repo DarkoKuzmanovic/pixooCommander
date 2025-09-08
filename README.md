@@ -5,6 +5,7 @@ A Python Qt6 application for controlling Pixoo-64 devices.
 ## Features
 
 - Connect to your Pixoo-64 device over Wi-Fi
+- Automatic device discovery and scanning
 - Send custom text messages to the device
 - Display images from your computer
 - Show real-time system information (CPU/RAM usage)

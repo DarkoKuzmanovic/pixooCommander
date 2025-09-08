@@ -6,13 +6,13 @@ Test specific Pixoo device endpoints
 import requests
 import json
 
-def test_pixoo_device(ip):
+def test_pixoo_device(pixoo_ip):
     """Test if the IP corresponds to a Pixoo device by checking specific endpoints"""
     urls_to_test = [
-        f"http://{ip}/",
-        f"http://{ip}/getinfo",
-        f"http://{ip}/getdevicetime",
-        f"http://{ip}/getdeviceinfo"
+        f"http://{pixoo_ip}/",
+        f"http://{pixoo_ip}/getinfo",
+        f"http://{pixoo_ip}/getdevicetime",
+        f"http://{pixoo_ip}/getdeviceinfo"
     ]
 
     for url in urls_to_test:
@@ -41,7 +41,7 @@ def test_pixoo_device(ip):
 
 if __name__ == "__main__":
     # Test the devices we found
-    devices_to_test = ["192.168.0.108"]
+    devices_to_test = []
 
     print("Testing potential Pixoo devices...")
     for device_ip in devices_to_test:

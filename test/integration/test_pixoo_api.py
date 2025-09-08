@@ -45,5 +45,8 @@ def check_pixoo_methods(ip):
 
 if __name__ == "__main__":
     # Use the IP we found
-    ip = "192.168.0.103"
+    import os
+    ip = os.getenv('TEST_DEVICE_IP', '')
+    if not ip:
+        print("No TEST_DEVICE_IP environment variable set. Using empty string.")
     check_pixoo_methods(ip)

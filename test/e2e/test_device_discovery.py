@@ -51,19 +51,19 @@ def discover_pixoo_devices():
     finally:
         sock.close()
 
-def test_pixoo_library_connection(ip):
+def test_pixoo_library_connection(pixoo_ip):
     """Test connection using the pixoo library"""
     try:
         from pixoo import Pixoo
-        print(f"Trying to connect to Pixoo device at {ip}...")
-        pixoo = Pixoo(ip)
+        print(f"Trying to connect to Pixoo device at {pixoo_ip}...")
+        pixoo = Pixoo(pixoo_ip)
 
         # Try to get device info
         device_time = pixoo.get_device_time()
         print(f"Successfully connected! Device time: {device_time}")
         return True
     except Exception as e:
-        print(f"Failed to connect to {ip}: {e}")
+        print(f"Failed to connect to {pixoo_ip}: {e}")
         return False
 
 if __name__ == "__main__":
@@ -84,17 +84,14 @@ if __name__ == "__main__":
         print("No Pixoo devices found via discovery.")
         print("\nTrying known devices on your network...")
 
-        # Try some common IPs
-        common_ips = ["192.168.0.103", "192.168.0.104", "192.168.0.105", "192.168.0.107"]
-        for ip in common_ips:
-            print(f"\nTesting connection to {ip}...")
-            if test_pixoo_library_connection(ip):
-                print(f"*** Successfully connected to Pixoo device at {ip}! ***")
-                break
+        import os
+        test_ip = os.getenv('TEST_DEVICE_IP', '')
+        if test_ip:
+            print(f"\nTesting connection to test IP {test_ip}...")
+            if test_pixoo_library_connection(test_ip):
+                print(f"*** Successfully connected to Pixoo device at {test_ip}! ***")
+            else:
+                print("Could not connect to test IP.")
         else:
-            print("Could not find or connect to any Pixoo devices.")
-            print("\nTroubleshooting steps:")
-            print("1. Make sure your Pixoo64 is powered on and connected to Wi-Fi")
-            print("2. Make sure your computer is on the same Wi-Fi network")
-            print("3. Check the Pixoo app on your phone to see the device's IP address")
-            print("4. Try manually entering IP addresses like 192.168.0.104, 192.168.0.105, etc.")
+            print("No test IP provided via TEST_DEVICE_IP env var. Skipping connection test.")
+            print("\nTo run connection test, set TEST_DEVICE_IP env var to device IP.")

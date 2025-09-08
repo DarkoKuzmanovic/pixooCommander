@@ -9,10 +9,14 @@ import psutil
 def test_all_features():
     """Test all features of the Pixoo64 device"""
     try:
-        print("Testing Pixoo64 device at 192.168.0.103 with screen size 64...")
+        print("Testing Pixoo64 device with screen size 64...")
 
         # Connect to device
-        pixoo = Pixoo("192.168.0.103", 64)
+        import os
+        device_ip = os.getenv('TEST_DEVICE_IP', '')
+        if not device_ip:
+            print("No TEST_DEVICE_IP environment variable set. Using empty string.")
+        pixoo = Pixoo(device_ip, 64)
 
         # Test 1: Get device info
         print("Test 1: Getting device info...")

@@ -16,7 +16,7 @@ from core.device import Device, DeviceConfig
 # Mock device for testing
 class MockDevice:
     def __init__(self):
-        self.config = DeviceConfig(ip="192.168.0.100", screen_size=64)
+        self.config = DeviceConfig(ip="", screen_size=64)
         self.draw_calls = []
         self.cleared = False
         self.pushed = False

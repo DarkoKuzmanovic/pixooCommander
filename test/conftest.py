@@ -39,7 +39,7 @@ def sample_config():
     """Sample configuration for testing."""
     return {
         "device": {
-            "ip": "192.168.0.100",
+            "ip": "",
             "screen_size": 64
         },
         "scenes": [

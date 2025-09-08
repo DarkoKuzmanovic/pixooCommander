@@ -13,26 +13,26 @@ def discover_pixoo_devices():
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.settimeout(5)
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    
+
     # Send discovery packet
     discovery_packet = {
         "Command": "DeviceList",
         "Module": "system",
         "Version": 1
     }
-    
+
     message = json.dumps(discovery_packet)
     print(f"Sending discovery packet: {message}")
-    
+
     try:
         # Send to broadcast address
         sock.sendto(message.encode(), ('255.255.255.255', 6000))
         print("Waiting for responses...")
-        
+
         # Wait for responses
         start_time = time.time()
         devices = []
-        
+
         while time.time() - start_time < 5:  # Wait 5 seconds
             try:
                 data, addr = sock.recvfrom(1024)
@@ -43,7 +43,7 @@ def discover_pixoo_devices():
                 break
             except Exception as e:
                 print(f"Error receiving data: {e}")
-                
+
         return devices
     except Exception as e:
         print(f"Error during discovery: {e}")
@@ -51,30 +51,30 @@ def discover_pixoo_devices():
     finally:
         sock.close()
 
-def test_pixoo_library_connection(ip):
+def test_pixoo_library_connection(pixoo_ip):
     """Test connection using the pixoo library"""
     try:
         from pixoo import Pixoo
-        print(f"Trying to connect to Pixoo device at {ip}...")
-        pixoo = Pixoo(ip)
-        
+        print(f"Trying to connect to Pixoo device at {pixoo_ip}...")
+        pixoo = Pixoo(pixoo_ip)
+
         # Try to get device info
         device_time = pixoo.get_device_time()
         print(f"Successfully connected! Device time: {device_time}")
         return True
     except Exception as e:
-        print(f"Failed to connect to {ip}: {e}")
+        print(f"Failed to connect to {pixoo_ip}: {e}")
         return False
 
 if __name__ == "__main__":
     print("Attempting to discover Pixoo devices on the network...")
     devices = discover_pixoo_devices()
-    
+
     if devices:
         print(f"\nFound {len(devices)} potential Pixoo devices:")
         for ip, info in devices:
             print(f"  - {ip}: {info}")
-            
+
         # Try to connect to each device
         for ip, info in devices:
             print(f"\nTesting connection to {ip}...")
@@ -83,9 +83,11 @@ if __name__ == "__main__":
     else:
         print("No Pixoo devices found via discovery.")
         print("\nTrying known devices on your network...")
-        
+
         # Try some common IPs
-        common_ips = ["192.168.0.103", "192.168.0.104", "192.168.0.105", "192.168.0.107"]
+        import os
+        test_ip = os.getenv('TEST_DEVICE_IP', '')
+        common_ips = [test_ip] if test_ip else []
         for ip in common_ips:
             print(f"\nTesting connection to {ip}...")
             if test_pixoo_library_connection(ip):
