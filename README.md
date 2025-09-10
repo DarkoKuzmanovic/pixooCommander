@@ -1,6 +1,6 @@
 # Pixoo Commander
 
-A Python Qt6 application for controlling Pixoo-64 devices.
+A Python application for controlling Pixoo-64 devices with both Qt6 desktop and NiceGUI web interfaces.
 
 ## Features
 
@@ -13,6 +13,9 @@ A Python Qt6 application for controlling Pixoo-64 devices.
 - Dual-screen display with automatic rotation
 - Custom message display with color selection
 - Manual screen switching controls
+- Scene management with preview thumbnails
+- Theme support (light/dark mode)
+- Responsive web interface
 
 ## Prerequisites
 
@@ -37,21 +40,62 @@ source .venv/bin/activate  # On macOS/Linux
 
 ## Usage
 
-1. Run the application:
+### Qt6 Desktop Application (Original)
+
+1. Run the original Qt6 application:
 
    ```bash
-   python main.py
+   python qt_app.py
    ```
 
-2. Enter your Pixoo-64 device's IP address (default is 192.168.0.103) and screen size (default is 64 for Pixoo-64)
-3. Click "Connect" to establish a connection
-4. Use the various controls to:
-   - Send text messages
-   - Display images from your computer
-   - Show system information
-   - Enable continuous monitoring
-   - Enable screen rotation between different display modes
-   - Create and display custom messages with color selection
+2. The application window will open with all the traditional controls:
+   - Device connection settings (IP address, screen size)
+   - Device discovery and scanning
+   - Text message input with color selection
+   - Image browsing and display
+   - System information monitoring
+   - Screen rotation controls
+   - Custom message creation
+
+### NiceGUI Web Application (New)
+
+1. Run the web application (development):
+
+   ```bash
+   python web_app.py
+   ```
+
+2. Open your browser to <http://localhost:8080>
+
+3. What the web UI provides:
+   - **Connection**: device discovery, manual IP entry, screen size, and connect/disconnect controls.
+   - **Scenes**: full scene management with thumbnail previews, add/edit/delete dialogs, scene ordering and playback controls. Thumbnails are generated server-side (see [`ui/preview.py`](ui/preview.py:1)) and cached for performance.
+   - **Settings**: application preferences and theme selector (light/dark).
+
+4. Thumbnails and previews:
+   - Previews are produced by [`ui/preview.py`](ui/preview.py:1); Pillow (PIL) enables richer PNG previews. Install Pillow for full preview functionality:
+
+     ```bash
+     pip install pillow
+     ```
+
+   - If Pillow is not available, a simple placeholder preview is used.
+   - Previews are 64×64 PNGs encoded as data URIs and cached in memory to reduce CPU usage.
+
+5. Scenes supported:
+   - **Text scenes**: multi-line text, per-line colors, alignment, spacing, scrolling options and duration.
+   - **Image scenes**: local image path with fit modes.
+   - **SysInfo scenes**: theme-aware system information displays (CPU/RAM/time).
+
+6. Developer notes:
+   - Main web entry: `web_app.py` (run the server)
+   - Scenes page implementation: [`ui/pages/scenes.py`](ui/pages/scenes.py:1)
+   - Preview renderer: [`ui/preview.py`](ui/preview.py:1)
+   - Core scene classes: `core/scenes/` (`text.py`, `image.py`, `sysinfo.py`)
+   - Example scenes: call `Example()` inside the Scenes page for quick manual testing.
+
+7. Running tests:
+   - Unit and integration tests remain in `test/`. Some tests that interact with devices require `PIXOO_IP` and network access.
 
 ## Testing
 
@@ -158,7 +202,7 @@ Create a multi-line text scene with different alignments:
   - `text`: The text to display (required)
   - `y`: Y position in pixels (optional, defaults to line index * 12)
   - `x`: X position in pixels or alignment string (optional)
-  - `color`: RGB color for this line (optional, overrides default)
+- `color`: RGB color for this line (optional, overrides default)
 
 ## Screen Sizes
 
@@ -181,6 +225,30 @@ The application defaults to screen size 64 for Pixoo-64 devices.
 ## Development
 
 For development guidelines, coding style, testing, and contribution rules, see [AGENTS.md](AGENTS.md).
+
+## Architecture
+
+The application is structured with a clear separation of concerns:
+
+- **Core Modules** (`core/`): Business logic for device communication, scene management, and playback
+- **UI Modules** (`ui/`): NiceGUI web interface components
+- **Qt6 Application** (`qt_app.py`): Original desktop application (preserved for backward compatibility)
+- **Web Application** (`web_app.py`): New NiceGUI web application entry point
+
+### Core Components
+
+- `core/device.py`: Device communication and discovery
+- `core/player.py`: Scene playback engine
+- `core/scenes/`: Scene type implementations (text, image, sysinfo)
+- `core/project.py`: Project management
+
+### Web UI Components
+
+- `ui/app.py`: Main application structure and tab management
+- `ui/pages/connection.py`: Device connection interface
+- `ui/pages/scenes.py`: Scene management interface
+- `ui/preview.py`: Scene preview generation
+- `ui/theme.py`: Theme system and CSS generation
 
 ## Contributing
 

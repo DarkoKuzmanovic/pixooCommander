@@ -4,3 +4,7 @@ requests>=2.32.3
 psutil>=6.1.0
 zeroconf>=0.131.0
 async-upnp-client>=0.38.0
+nicegui>=1.4.0
+uvicorn>=0.20.0
+fastapi>=0.100.0
+Pillow>=9.0.0
