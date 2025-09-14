@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Pixoo Commander</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/css/main.css">
+</head>
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header class="header">
+            <h1>Pixoo Commander</h1>
+            <div class="connection-status">
+                <span id="connection-status">Disconnected</span>
+                <button id="connect-btn">Connect</button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="main-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <!-- Device Settings -->
+                <section class="device-settings">
+                    <h3>Device Settings</h3>
+                    <div class="setting-group">
+                        <label for="device-ip">Device IP:</label>
+                        <div class="ip-input-group">
+                            <input type="text" id="device-ip" placeholder="192.168.1.100">
+                            <button id="scan-devices-btn" class="secondary">🔍 Scan</button>
+                        </div>
+                    </div>
+                    <div id="discovered-devices" class="discovered-devices" style="display: none;">
+                        <h4>Discovered Devices:</h4>
+                        <div id="device-list" class="device-list">
+                            <!-- Discovered devices will appear here -->
+                        </div>
+                    </div>
+                    <div class="setting-group">
+                        <label for="brightness">Brightness:</label>
+                        <input type="range" id="brightness" min="0" max="100" value="50">
+                        <span id="brightness-value">50</span>
+                    </div>
+                </section>
+
+                <!-- Scene Management -->
+                <section class="scene-management">
+                    <h3>Scenes</h3>
+                    <div class="scene-controls">
+                        <button id="add-scene-btn">+ Add Scene</button>
+                    </div>
+                    <div id="scene-list" class="scene-list">
+                        <!-- Scenes will be populated here -->
+                    </div>
+                </section>
+
+                <!-- Widget Library -->
+                <section class="widget-library">
+                    <h3>Widget Library</h3>
+                    <div id="widget-types" class="widget-types">
+                        <!-- Widget types will be populated here -->
+                    </div>
+                </section>
+            </aside>
+
+            <!-- Content Area -->
+            <main class="content">
+                <!-- Scene Editor -->
+                <section class="scene-editor">
+                    <div class="scene-header">
+                        <h2 id="current-scene-name">No Scene Selected</h2>
+                        <div class="scene-actions">
+                            <button id="play-scene-btn" disabled>▶ Play</button>
+                            <button id="stop-scene-btn" disabled>⏹ Stop</button>
+                            <button id="delete-scene-btn" disabled>🗑 Delete</button>
+                        </div>
+                    </div>
+
+                    <!-- Pixoo Preview -->
+                    <div class="pixoo-preview">
+                        <h4>Preview (64x64)</h4>
+                        <div class="canvas-container">
+                            <canvas id="pixoo-canvas" width="320" height="320"></canvas>
+                            <canvas id="pixoo-overlay" width="320" height="320"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Widget List -->
+                    <div class="widget-management">
+                        <h4>Widgets in Scene</h4>
+                        <div id="scene-widgets" class="scene-widgets">
+                            <div class="no-widgets">No widgets in this scene</div>
+                        </div>
+                    </div>
+                </section>
+            </main>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Add Scene Modal -->
+    <div id="add-scene-modal" class="modal">
+        <div class="modal-content">
+            <h3>Add New Scene</h3>
+            <div class="form-group">
+                <label for="scene-name">Scene Name:</label>
+                <input type="text" id="scene-name" placeholder="My Scene">
+            </div>
+            <div class="form-group">
+                <label for="scene-description">Description:</label>
+                <textarea id="scene-description" placeholder="Scene description..."></textarea>
+            </div>
+            <div class="modal-actions">
+                <button id="create-scene-btn">Create</button>
+                <button id="cancel-scene-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Widget Config Modal -->
+    <div id="widget-config-modal" class="modal">
+        <div class="modal-content">
+            <h3>Configure Widget</h3>
+            <div id="widget-config-form">
+                <!-- Widget configuration form will be populated here -->
+            </div>
+            <div class="modal-actions">
+                <button id="save-widget-config-btn">Save</button>
+                <button id="cancel-widget-config-btn">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="/js/neutralino.js"></script>
+
+    <!-- Core Classes -->
+    <script src="/js/core/pixoo-client.js"></script>
+    <script src="/js/core/device-scanner.js"></script>
+    <script src="/js/core/widget-base.js"></script>
+    <script src="/js/core/plugin-manager.js"></script>
+    <script src="/js/core/scene-manager.js"></script>
+
+    <!-- Plugins loaded dynamically by plugin manager -->
+
+    <!-- UI Components -->
+    <script src="/js/ui/ui-manager.js"></script>
+
+    <!-- Main Application -->
+    <script src="/js/main.js"></script>
+</body>
+</html>
