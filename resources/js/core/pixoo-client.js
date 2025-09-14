@@ -1,55 +1,77 @@
+/**
+ * PixooClient - Browser-compatible Pixoo LED Display Controller
+ * Maintains compatibility with all existing code while providing improved
+ * connection management and error handling.
+ */
 class PixooClient {
     constructor(ipAddress = null, size = 64) {
         this.ipAddress = ipAddress;
         this.size = size;
         this.connected = false;
         this.buffer = this.createBuffer();
-    }
 
-    createBuffer() {
-        return Array(this.size).fill().map(() => Array(this.size).fill([0, 0, 0]));
-    }
+        // Connection state management
+        this.connectionState = {
+            port: null,
+            path: null,
+            lastConnected: null,
+            connectionAttempts: 0,
+            maxRetries: 3
+        };
 
-    async connect() {
-        if (!this.ipAddress) {
-            throw new Error('IP address not set');
-        }
-
-        // Try different ports and endpoints commonly used by Pixoo devices
-        const endpoints = [
+        // Supported endpoints for Pixoo devices
+        this.endpoints = [
             { port: 80, path: '/post' },
             { port: 64, path: '/post' },
             { port: 80, path: '/api/post' },
             { port: 8080, path: '/post' },
             { port: 443, path: '/post' }
         ];
+    }
 
+    createBuffer() {
+        return Array(this.size).fill().map(() => Array(this.size).fill([0, 0, 0]));
+    }
+
+    /**
+     * Enhanced connection method with better error handling and state management
+     */
+    async connect() {
+        if (!this.ipAddress) {
+            throw new Error('IP address not set');
+        }
+
+        this.connectionState.connectionAttempts++;
         let lastError;
 
-        for (const endpoint of endpoints) {
+        // Try preferred endpoint first if we have one from previous connection
+        if (this.connectionState.port && this.connectionState.path) {
+            try {
+                await this._testEndpoint({
+                    port: this.connectionState.port,
+                    path: this.connectionState.path
+                });
+                this.connected = true;
+                this.connectionState.lastConnected = Date.now();
+                console.log(`Reconnected to Pixoo device at ${this.ipAddress}:${this.connectionState.port}${this.connectionState.path}`);
+                return;
+            } catch (error) {
+                console.log(`Previous endpoint failed, trying all endpoints: ${error.message}`);
+            }
+        }
+
+        // Try all endpoints
+        for (const endpoint of this.endpoints) {
             try {
                 console.log(`Trying connection to ${this.ipAddress}:${endpoint.port}${endpoint.path}`);
 
-                // Test connection with a simple API call
-                const testPayload = {
-                    Command: "Channel/GetIndex"
-                };
+                await this._testEndpoint(endpoint);
 
-                const response = await fetch(`http://${this.ipAddress}:${endpoint.port}${endpoint.path}`, {
-                    method: 'POST',
-                    mode: 'no-cors', // Bypass CORS for local device communication
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(testPayload),
-                    signal: AbortSignal.timeout(3000) // 3 second timeout per attempt
-                });
-
-                // With no-cors mode, we can't check response.ok, so assume success if no error was thrown
                 // Store the working endpoint
-                this.port = endpoint.port;
-                this.path = endpoint.path;
+                this.connectionState.port = endpoint.port;
+                this.connectionState.path = endpoint.path;
                 this.connected = true;
+                this.connectionState.lastConnected = Date.now();
                 console.log(`Successfully connected to Pixoo device at ${this.ipAddress}:${endpoint.port}${endpoint.path}`);
                 return;
 
@@ -61,7 +83,40 @@ class PixooClient {
 
         // If we get here, none of the endpoints worked
         this.connected = false;
+        this.connectionState.port = null;
+        this.connectionState.path = null;
         throw new Error(`Failed to connect to Pixoo device on any port. Last error: ${lastError?.message || 'Unknown error'}`);
+    }
+
+    /**
+     * Test a specific endpoint for connectivity
+     */
+    async _testEndpoint(endpoint) {
+        const testPayload = {
+            Command: "Channel/GetIndex"
+        };
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+
+        try {
+            const response = await fetch(`http://${this.ipAddress}:${endpoint.port}${endpoint.path}`, {
+                method: 'POST',
+                mode: 'no-cors', // Bypass CORS for local device communication
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(testPayload),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            // With no-cors mode, we can't check response.ok, so assume success if no error was thrown
+            return response;
+        } catch (error) {
+            clearTimeout(timeoutId);
+            throw error;
+        }
     }
 
     async setPixel(x, y, color) {
@@ -144,14 +199,21 @@ class PixooClient {
         return result;
     }
 
+    /**
+     * Enhanced command sending with improved error handling and retry logic
+     */
     async sendCommand(payload, retryCount = 3) {
         if (!this.connected) {
             throw new Error('Not connected to Pixoo device');
         }
 
+        if (!this.connectionState.port || !this.connectionState.path) {
+            throw new Error('No valid endpoint available');
+        }
+
         // Use the endpoint that was discovered during connection
-        const port = this.port || 80;
-        const path = this.path || '/post';
+        const port = this.connectionState.port;
+        const path = this.connectionState.path;
 
         for (let attempt = 1; attempt <= retryCount; attempt++) {
             try {
@@ -182,26 +244,10 @@ class PixooClient {
                 if (attempt === retryCount) {
                     console.error('Failed to send command to Pixoo:', error);
 
-                    // If we get a connection error, mark as disconnected
-                    if (error.message.includes('Failed to fetch') ||
-                        error.message.includes('NetworkError') ||
-                        error.message.includes('TypeError') ||
-                        error.message.includes('signal timed out') ||
-                        error.name === 'TimeoutError' ||
-                        error.name === 'AbortError') {
+                    // If we get a connection error, mark as disconnected and reset connection state
+                    if (this._isConnectionError(error)) {
                         console.log('Connection lost, marking device as disconnected');
-                        this.connected = false;
-
-                        // Notify UI of disconnection
-                        if (window.uiManager) {
-                            const statusElement = document.getElementById('connection-status');
-                            const connectBtn = document.getElementById('connect-btn');
-                            if (statusElement && connectBtn) {
-                                statusElement.textContent = 'Disconnected';
-                                statusElement.className = 'disconnected';
-                                connectBtn.textContent = 'Connect';
-                            }
-                        }
+                        this._handleDisconnection();
                     }
 
                     throw error;
@@ -209,6 +255,39 @@ class PixooClient {
 
                 // Wait before retrying (exponential backoff)
                 await new Promise(resolve => setTimeout(resolve, Math.min(1000 * Math.pow(2, attempt - 1), 3000)));
+            }
+        }
+    }
+
+    /**
+     * Check if an error indicates a connection problem
+     */
+    _isConnectionError(error) {
+        return error.message.includes('Failed to fetch') ||
+               error.message.includes('NetworkError') ||
+               error.message.includes('TypeError') ||
+               error.message.includes('signal timed out') ||
+               error.name === 'TimeoutError' ||
+               error.name === 'AbortError';
+    }
+
+    /**
+     * Handle disconnection and update UI state
+     */
+    _handleDisconnection() {
+        this.connected = false;
+        this.connectionState.port = null;
+        this.connectionState.path = null;
+        this.connectionState.lastConnected = null;
+
+        // Notify UI of disconnection
+        if (window.uiManager) {
+            const statusElement = document.getElementById('connection-status');
+            const connectBtn = document.getElementById('connect-btn');
+            if (statusElement && connectBtn) {
+                statusElement.textContent = 'Disconnected';
+                statusElement.className = 'disconnected';
+                connectBtn.textContent = 'Connect';
             }
         }
     }
